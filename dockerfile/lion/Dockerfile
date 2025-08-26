@@ -1,6 +1,18 @@
 FROM ghcr.io/loong64/guacamole/guacd:1.5.5-trixie AS stage-1
-FROM ghcr.io/loong64/golang:1.23-trixie AS stage-2
+FROM ghcr.io/loong64/debian:trixie-slim AS stage-2
 ARG TARGETARCH
+
+ARG DEPENDENCIES="                    \
+        ca-certificates               \
+        wget"
+
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    set -e \
+    && rm -f /etc/apt/apt.conf.d/docker-clean \
+    && echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' >/etc/apt/apt.conf.d/keep-cache \
+    && apt-get update \
+    && apt-get -y install --no-install-recommends ${DEPENDENCIES}
 
 WORKDIR /opt
 
@@ -25,21 +37,7 @@ ARG VERSION
 RUN --mount=type=bind,source=dist,target=/dist \
     set -e \
     && mkdir -p /opt/lion \
-    && tar -xf /dist/lion-${VERSION}.tar.gz -C /opt/lion --strip-components=1 \
-    && rm -f /opt/*.tar.gz
-
-RUN --mount=type=cache,target=/go/pkg/mod \
-    --mount=type=cache,target=/root/.cache/go-build \
-    set -e \
-    && cd /opt/lion \
-    && make linux-${TARGETARCH} BUILDDIR=dist VERSION=${VERSION} \
-    && mv dist/*.tar.gz /opt \
-    && rm -rf /opt/lion
-
-WORKDIR /opt/lion
-
-RUN set -e \
-    && tar -xf /opt/lion-${VERSION}-linux-${TARGETARCH}.tar.gz -C /opt/lion --strip-components=1 \
+    && tar -xf /dist/lion-${VERSION}-linux-${TARGETARCH}.tar.gz -C /opt/lion --strip-components=1 \
     && chmod 755 /opt/lion/*.sh \
     && chown -R root:root /opt/lion \
     && rm -f /opt/*.tar.gz

@@ -62,6 +62,7 @@ jobs:
     needs: check
     strategy:
       matrix:
+        go_version: [ 'stable' ]
         java_version: [ '17' ]
         node_version: [ '20' ]
         python_version: [ '3.11' ]
@@ -74,12 +75,14 @@ jobs:
             ~/.m2
             ~/.npm
             ~/.cache
+            ~/go
           key: ${{ runner.os }}-${{ matrix.component }}-${{ github.sha }}
           restore-keys: ${{ runner.os }}-${{ matrix.component }}
 
-      - name: Get Version
-        run: |
-          echo "Current Version: ${version}"
+      - uses: actions/setup-go@v5
+        if: contains(fromJson('["koko", "lion"]'), matrix.component)
+        with:
+          go-version: 'stable'
 
       - uses: actions/setup-java@v4
         if: matrix.component == 'chen'
@@ -105,9 +108,9 @@ jobs:
           pip install uv
 
       - name: Create Workspace
-        run: mkdir -p dist
+        run: mkdir -p dist web
 
-      - name: Checkout Code for Core
+      - name: Checkout Code for jumpserver
         if: matrix.component == 'core'
         uses: actions/checkout@v5
         with:
@@ -115,7 +118,7 @@ jobs:
           ref: ${{ env.tag }}
           path: ${{ matrix.component }}
 
-      - name: Checkout Code for Custom
+      - name: Checkout Code for ${{ matrix.component }}
         if: contains(fromJson('["koko", "lion", "chen", "lina", "luna"]'), matrix.component)
         uses: actions/checkout@v5
         with:
@@ -123,58 +126,28 @@ jobs:
           ref: ${{ env.tag }}
           path: ${{ matrix.component }}
 
-      - name: Prepare Source Code
-        if: contains(fromJson('["koko", "lion", "web"]'), matrix.component)
+      - name: Build Binaries
         run: |
           case ${{ matrix.component }} in
-            koko|lion)
-              GHSHA=$(git rev-parse HEAD)
-              cd ${{ matrix.component }}
-              sed -i "s@VERSION ?=.*@VERSION := ${{ env.version }}@g" Makefile
-              sed -i "s@COMMIT := .*@COMMIT := ${GHSHA}@g" Makefile
-              sed -i 's/@cd $(UIDIR)/# @cd $(UIDIR)/g' Makefile
+            core)
+              uv venv /tmp/py3
+              . /tmp/py3/bin/activate
+              uv pip install -r pyproject.toml
+              sed -i "s@VERSION = .*@VERSION = '${{ env.version }}'@g" apps/jumpserver/const.py
+              wget -qO apps/common/utils/ip/geoip/GeoLite2-City.mmdb https://jms-pkg.oss-cn-beijing.aliyuncs.com/ip/GeoLite2-City.mmdb
+              wget -qO apps/common/utils/ip/ipip/ipipfree.ipdb https://jms-pkg.oss-cn-beijing.aliyuncs.com/ip/ipipfree.ipdb
+              echo > config.yml
+              export SECRET_KEY=$(head -c100 < /dev/urandom | base64 | tr -dc A-Za-z0-9 | head -c 48)
+              python apps/manage.py compilemessages
+              rm -f config.yml
+              rm -rf .git .github
               cd ..
-              cp -R ${{ matrix.component }} ${{ matrix.component }}-${{ env.version }}
-              rm -rf ${{ matrix.component }}-${{ env.version }}/.git ${{ matrix.component }}-${{ env.version }}/.github
+              cp -R core core-${{ env.version }}
+              tar -zcf dist/core-${{ env.version }}.tar.gz core-${{ env.version }}
               ;;
-            web)
-              cp dockerfile/${{ matrix.component }}/prepare.sh .
-              ./prepare.sh
-              cd opt
-              tar -czf ../dist/web-${{ env.version }}.tar.gz download
-          esac
-
-      - name: Build Core
-        if: matrix.component == 'core'
-        run: |
-          uv venv /tmp/py3
-          . /tmp/py3/bin/activate
-          uv pip install -r pyproject.toml
-          sed -i "s@VERSION = .*@VERSION = '${{ env.version }}'@g" apps/jumpserver/const.py
-          wget -qO apps/common/utils/ip/geoip/GeoLite2-City.mmdb https://jms-pkg.oss-cn-beijing.aliyuncs.com/ip/GeoLite2-City.mmdb
-          wget -qO apps/common/utils/ip/ipip/ipipfree.ipdb https://jms-pkg.oss-cn-beijing.aliyuncs.com/ip/ipipfree.ipdb
-          echo > config.yml
-          export SECRET_KEY=$(head -c100 < /dev/urandom | base64 | tr -dc A-Za-z0-9 | head -c 48)
-          python apps/manage.py compilemessages
-          rm -f config.yml
-          rm -rf .git .github
-          cd ..
-          cp -R core core-${{ env.version }}
-          tar -zcf dist/core-${{ env.version }}.tar.gz core-${{ env.version }}
-        working-directory: ./${{ matrix.component }}
-
-      - name: Build Web
-        if: contains(fromJson('["koko", "lion", "chen", "lina", "luna"]'), matrix.component)
-        run: |
-          case ${{ matrix.component }} in
             koko|lion)
-              cd ui
-              yarn install
-              yarn build
-              cp -R dist ../../${{ matrix.component }}-${{ env.version }}/ui
-              cd ../../
-              tar -zcvf dist/${{ matrix.component }}-${{ env.version }}.tar.gz ${{ matrix.component }}-${{ env.version }}
-              sed -i 's/@cd $(UIDIR)/# @cd $(UIDIR)/g' ${{ matrix.component }}-${{ env.version }}/Makefile
+              make linux-loong64 BUILDDIR=dist VERSION=${{ env.version }}
+              mv dist/*.tar.gz ../dist/
               ;;
             chen)
               cd frontend
@@ -182,6 +155,15 @@ jobs:
               yarn config set ignore-engines true
               yarn install
               yarn build
+              cd ..
+              mvn clean package -DskipTests
+              mkdir -p dist chen-${{ env.version }}
+              rm -f config/application-dev.yml
+              mv backend/web/target/web-*.jar chen-${{ env.version }}/chen.jar
+              mv entrypoint.sh chen-${{ env.version }}/entrypoint.sh
+              mv drivers chen-${{ env.version }}/drivers
+              mv config chen-${{ env.version }}/config
+              tar -zcvf ../dist/chen-${{ env.version }}.tar.gz chen-${{ env.version }}
               ;;
             lina)
               sed -i "s@version-dev@${{ env.version }}@g" src/layout/components/NavHeader/About.vue
@@ -198,20 +180,11 @@ jobs:
               mv luna luna-${{ env.version }}
               tar -zcvf ../dist/luna-${{ env.version }}.tar.gz luna-${{ env.version }}
               ;;
+            web)
+              cp ../dockerfile/${{ matrix.component }}/prepare.sh .
+              ./prepare.sh
+              tar -C opt -czf ../dist/web-${{ env.version }}.tar.gz download
           esac
-        working-directory: ./${{ matrix.component }}
-
-      - name: Build Binaries
-        if: matrix.component == 'chen'
-        run: |
-          mvn clean package -DskipTests
-          mkdir -p dist chen-${{ env.version }}
-          rm -f config/application-dev.yml
-          mv backend/web/target/web-*.jar chen-${{ env.version }}/chen.jar
-          mv entrypoint.sh chen-${{ env.version }}/entrypoint.sh
-          mv drivers chen-${{ env.version }}/drivers
-          mv config chen-${{ env.version }}/config
-          tar -zcvf ../dist/chen-${{ env.version }}.tar.gz chen-${{ env.version }}
         working-directory: ./${{ matrix.component }}
 
       - name: Upload Binaries
@@ -247,7 +220,7 @@ jobs:
           path: dist
           merge-multiple: true
 
-      - name: Get Version
+      - name: Setup Environment
         run: |
           mkdir -p /tmp/.buildx-cache
           echo "Current Version: ${version}"

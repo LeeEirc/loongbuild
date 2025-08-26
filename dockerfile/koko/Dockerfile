@@ -1,6 +1,18 @@
 FROM ghcr.io/loong64/redis:7.2-trixie AS stage-1
-FROM ghcr.io/loong64/golang:1.24-trixie AS stage-2
+FROM ghcr.io/loong64/debian:trixie-slim AS stage-2
 ARG TARGETARCH
+
+ARG DEPENDENCIES="                    \
+        ca-certificates               \
+        wget"
+
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    set -e \
+    && rm -f /etc/apt/apt.conf.d/docker-clean \
+    && echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' >/etc/apt/apt.conf.d/keep-cache \
+    && apt-get update \
+    && apt-get -y install --no-install-recommends ${DEPENDENCIES}
 
 WORKDIR /opt
 
@@ -31,18 +43,17 @@ RUN set -e \
 ARG HELM_VERSION=v3.18.6
 ARG KUBECTL_VERSION=v1.32.1
 RUN set -e \
-    && wget --quiet -O kubectl.tar.gz https://cloud.loongnix.cn/releases/loongarch64/kubernetes/kubernetes/${KUBECTL_VERSION}/kubernetes-client-linux-${TARGETARCH}.tar.gz \
-    && tar -xf kubectl.tar.gz --strip-components=3 kubernetes/client/bin/kubectl \
-    && mv kubectl /usr/local/bin/rawkubectl \
     && mkdir /opt/kubectl-aliases/ \
     && wget --quiet https://github.com/ahmetb/kubectl-aliases/raw/master/.kubectl_aliases \
     && mv .kubectl_aliases /opt/kubectl-aliases/ \
     && chown -R root:root /opt/kubectl-aliases/ \
+    && wget --quiet -O kubectl.tar.gz https://cloud.loongnix.cn/releases/loongarch64/kubernetes/kubernetes/${KUBECTL_VERSION}/kubernetes-client-linux-${TARGETARCH}.tar.gz \
+    && tar -xf kubectl.tar.gz --strip-components=3 kubernetes/client/bin/kubectl \
+    && mv kubectl /usr/local/bin/kubectl \
     && wget --quiet https://github.com/jumpserver-dev/helm/releases/download/${HELM_VERSION}/helm-${HELM_VERSION}-linux-${TARGETARCH}.tar.gz \
     && tar -xf helm-${HELM_VERSION}-linux-${TARGETARCH}.tar.gz --strip-components=1 \
-    && mv helm /usr/local/bin/rawhelm \
-    && chmod 755 /usr/local/bin/rawhelm /usr/local/bin/rawkubectl \
-    && chown root:root /usr/local/bin/rawhelm /usr/local/bin/rawkubectl \
+    && mv helm /usr/local/bin/helm \
+    && chmod 755 /usr/local/bin/helm /usr/local/bin/kubectl \
     && rm -f /opt/*.tar.gz
 
 ARG MONGOSH_VERSION=2.5.1
@@ -76,26 +87,9 @@ ARG VERSION
 RUN --mount=type=bind,source=dist,target=/dist \
     set -e \
     && mkdir -p /opt/koko \
-    && tar -xf /dist/koko-${VERSION}.tar.gz -C /opt/koko --strip-components=1 \
-    && rm -f /opt/*.tar.gz
-
-RUN --mount=type=cache,target=/go/pkg/mod \
-    --mount=type=cache,target=/root/.cache/go-build \
-    set -e \
-    && cd /opt/koko \
-    && make linux-${TARGETARCH} BUILDDIR=dist VERSION=${VERSION} \
-    && mv dist/*.tar.gz /opt \
-    && rm -rf /opt/koko
-
-WORKDIR /opt/koko
-
-RUN set -e \
-    && tar -xf /opt/koko-${VERSION}-linux-${TARGETARCH}.tar.gz -C /opt/koko --strip-components=1 \
+    && tar -xf /dist/koko-${VERSION}-linux-${TARGETARCH}.tar.gz -C /opt/koko --strip-components=1 \
     && chown -R root:root /opt/koko \
-    && mv /opt/koko/kubectl /usr/local/bin/ \
-    && mv /opt/koko/helm /usr/local/bin/ \
-    && chmod 755 /usr/local/bin/helm /usr/local/bin/kubectl /opt/koko/*.sh \
-    && chown -R root:root /opt/koko \
+    && chmod 755 /opt/koko/*.sh \
     && rm -f /opt/*.tar.gz
 
 FROM ghcr.io/loong64/debian:trixie-slim
