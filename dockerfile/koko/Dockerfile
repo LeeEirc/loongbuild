@@ -28,18 +28,18 @@ RUN set -e \
     && chmod 755 /usr/local/bin/usql \
     && rm -f /opt/*.tar.gz
 
-ARG HELM_VERSION=v3.17.3
-ARG KUBECTL_VERSION=v1.33.0
+ARG HELM_VERSION=v3.18.6
+ARG KUBECTL_VERSION=v1.32.1
 RUN set -e \
-    && wget --quiet -O kubectl.tar.gz https://dl.k8s.io/${KUBECTL_VERSION}/kubernetes-client-linux-${TARGETARCH}.tar.gz \
-    && tar -xf kubectl.tar.gz --strip-components=3 -C /opt kubernetes/client/bin/kubectl \
+    && wget --quiet -O kubectl.tar.gz https://cloud.loongnix.cn/releases/loongarch64/kubernetes/kubernetes/${KUBECTL_VERSION}/kubernetes-client-linux-${TARGETARCH}.tar.gz \
+    && tar -xf kubectl.tar.gz --strip-components=3 kubernetes/client/bin/kubectl \
     && mv kubectl /usr/local/bin/rawkubectl \
     && mkdir /opt/kubectl-aliases/ \
     && wget --quiet https://github.com/ahmetb/kubectl-aliases/raw/master/.kubectl_aliases \
     && mv .kubectl_aliases /opt/kubectl-aliases/ \
     && chown -R root:root /opt/kubectl-aliases/ \
-    && wget --quiet https://get.helm.sh/helm-${HELM_VERSION}-linux-${TARGETARCH}.tar.gz \
-    && tar -xf helm-${HELM_VERSION}-linux-${TARGETARCH}.tar.gz --strip-components=1 linux-${TARGETARCH}/helm \
+    && wget --quiet https://github.com/jumpserver-dev/helm/releases/download/${HELM_VERSION}/helm-${HELM_VERSION}-linux-${TARGETARCH}.tar.gz \
+    && tar -xf helm-${HELM_VERSION}-linux-${TARGETARCH}.tar.gz --strip-components=1 \
     && mv helm /usr/local/bin/rawhelm \
     && chmod 755 /usr/local/bin/rawhelm /usr/local/bin/rawkubectl \
     && chown root:root /usr/local/bin/rawhelm /usr/local/bin/rawkubectl \
