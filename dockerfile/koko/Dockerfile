@@ -1,4 +1,4 @@
-FROM ghcr.io/loong64/redis:7-trixie AS stage-1
+FROM ghcr.io/loong64/redis:7.2-trixie AS stage-1
 FROM ghcr.io/loong64/golang:1.24-trixie AS stage-2
 ARG TARGETARCH
 
