@@ -101,7 +101,7 @@ jobs:
         if: matrix.component == 'core'
         run: |
           sudo apt-get update
-          sudo apt-get -y install --no-install-recommends gettext g++ make pkg-config
+          sudo apt-get -y install --no-install-recommends gettext g++ make pkg-config default-libmysqlclient-dev freetds-dev gettext libkrb5-dev libldap2-dev libsasl2-dev
           pip install uv
 
       - name: Create Workspace
