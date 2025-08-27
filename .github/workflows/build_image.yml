@@ -1,0 +1,233 @@
+name: Build Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Build Branch'
+        required: true
+        default: ''
+      version:
+        description: 'Release Version'
+        required: true
+        default: ''
+      components:
+        description: 'Component'
+        required: false
+        default: 'core, koko, lion, chen, lina, luna, web'
+
+env:
+  branch: ${{ github.event.inputs.branch }}
+  version: ${{ github.event.inputs.version }}
+  image_tag: ${{ github.event.inputs.version }}-ce
+  components: ${{ github.event.inputs.components }}
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      components: ${{ steps.parse.outputs.components }}
+    steps:
+      - name: Parse Components
+        id: parse
+        run: |
+          # 将逗号分隔的字符串转换为 JSON 数组
+          components=$(echo "${{ env.components }}" | sed 's/[[:space:]]*,[[:space:]]*/","/g' | sed 's/^/"/' | sed 's/$/"/' | sed 's/^/[/' | sed 's/$/]/')
+          echo "components=$components" >> $GITHUB_OUTPUT
+          echo "Parsed components: $components"
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go_version: [ 'stable' ]
+        java_version: [ '17' ]
+        node_version: [ '20' ]
+        python_version: [ '3.11' ]
+        component: ${{ fromJson(needs.prepare.outputs.components) }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.m2
+            ~/.npm
+            ~/.cache
+            ~/go
+          key: ${{ runner.os }}-${{ matrix.component }}-${{ github.sha }}
+          restore-keys: ${{ runner.os }}-${{ matrix.component }}
+
+      - uses: actions/setup-go@v5
+        if: contains(fromJson('["koko", "lion"]'), matrix.component)
+        with:
+          go-version: 'stable'
+
+      - uses: actions/setup-java@v4
+        if: matrix.component == 'chen'
+        with:
+          distribution: 'oracle'
+          java-version: ${{ matrix.java_version }}
+
+      - uses: actions/setup-node@v4
+        if: contains(fromJson('["koko", "lion", "chen", "lina", "luna"]'), matrix.component)
+        with:
+          node-version: ${{ matrix.node_version }}
+
+      - uses: actions/setup-python@v5
+        if: matrix.component == 'core'
+        with:
+          python-version: ${{ matrix.python_version }}
+
+      - name: Install Dependencies for Python
+        if: matrix.component == 'core'
+        run: |
+          sudo apt-get update
+          sudo apt-get -y install --no-install-recommends gettext g++ make pkg-config default-libmysqlclient-dev freetds-dev gettext libkrb5-dev libldap2-dev libsasl2-dev
+          pip install uv
+
+      - name: Create Workspace
+        run: mkdir -p dist web
+
+      - name: Checkout Code for jumpserver
+        if: matrix.component == 'core'
+        uses: actions/checkout@v5
+        with:
+          repository: jumpserver/jumpserver
+          ref: ${{ env.branch }}
+          path: ${{ matrix.component }}
+
+      - name: Checkout Code for ${{ matrix.component }}
+        if: contains(fromJson('["koko", "lion", "chen", "lina", "luna"]'), matrix.component)
+        uses: actions/checkout@v5
+        with:
+          repository: jumpserver/${{ matrix.component }}
+          ref: ${{ env.branch }}
+          path: ${{ matrix.component }}
+
+      - name: Build Binaries
+        run: |
+          case ${{ matrix.component }} in
+            core)
+              uv venv /tmp/py3
+              . /tmp/py3/bin/activate
+              uv pip install -r pyproject.toml
+              sed -i "s@VERSION = .*@VERSION = '${{ env.version }}'@g" apps/jumpserver/const.py
+              wget -qO apps/common/utils/ip/geoip/GeoLite2-City.mmdb https://jms-pkg.oss-cn-beijing.aliyuncs.com/ip/GeoLite2-City.mmdb
+              wget -qO apps/common/utils/ip/ipip/ipipfree.ipdb https://jms-pkg.oss-cn-beijing.aliyuncs.com/ip/ipipfree.ipdb
+              echo > config.yml
+              export SECRET_KEY=$(head -c100 < /dev/urandom | base64 | tr -dc A-Za-z0-9 | head -c 48)
+              python apps/manage.py compilemessages
+              rm -f config.yml
+              rm -rf .git .github
+              cd ..
+              cp -R core core-${{ env.version }}
+              tar -zcf dist/core-${{ env.version }}.tar.gz core-${{ env.version }}
+              ;;
+            koko|lion)
+              make linux-loong64 BUILDDIR=dist VERSION=${{ env.version }}
+              mv dist/*.tar.gz ../dist/
+              ;;
+            chen)
+              cd frontend
+              rm -f package-lock.json yarn.lock
+              yarn config set ignore-engines true
+              yarn install
+              yarn build
+              cd ..
+              mvn clean package -DskipTests
+              mkdir -p dist chen-${{ env.version }}
+              rm -f config/application-dev.yml
+              mv backend/web/target/web-*.jar chen-${{ env.version }}/chen.jar
+              mv entrypoint.sh chen-${{ env.version }}/entrypoint.sh
+              mv drivers chen-${{ env.version }}/drivers
+              mv config chen-${{ env.version }}/config
+              tar -zcvf ../dist/chen-${{ env.version }}.tar.gz chen-${{ env.version }}
+              ;;
+            lina)
+              sed -i "s@version-dev@${{ env.version }}@g" src/layout/components/NavHeader/About.vue
+              yarn install
+              yarn build
+              mv lina lina-${{ env.version }}
+              tar -zcvf ../dist/lina-${{ env.version }}.tar.gz lina-${{ env.version }}
+              ;;
+            luna)
+              sed -i "s@version =.*;@version = '${{ env.version }}';@g" src/environments/environment.prod.ts
+              yarn install
+              yarn build
+              cp -R src/assets/i18n luna/
+              mv luna luna-${{ env.version }}
+              tar -zcvf ../dist/luna-${{ env.version }}.tar.gz luna-${{ env.version }}
+              ;;
+            web)
+              cp ../dockerfile/${{ matrix.component }}/prepare.sh .
+              ./prepare.sh
+              tar -C opt -czf ../dist/web-${{ env.version }}.tar.gz download
+          esac
+        working-directory: ./${{ matrix.component }}
+      - name: Upload Binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.component }}-binaries
+          path: dist/*.tar.gz
+
+  docker:
+    runs-on: ubuntu-latest
+    needs: release
+    strategy:
+      matrix:
+        component: ${{ fromJson(needs.prepare.outputs.components) }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/cache@v4
+        if: matrix.component != 'web'
+        with:
+          path: /tmp/.buildx-cache
+          key: docker-${{ matrix.component }}-${{ github.sha }}
+          restore-keys: docker-${{ matrix.component }}
+
+      - name: Download Binaries
+        uses: actions/download-artifact@v5
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Setup Environment
+        run: |
+          mkdir -p /tmp/.buildx-cache
+          echo "Current Version: ${version}"
+
+          ls -al dist
+          echo "image_name=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/jumpserver/${{ matrix.component }}" >> $GITHUB_ENV
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and Push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          provenance: false
+          file: dockerfile/${{ matrix.component }}/Dockerfile
+          platforms: linux/loong64
+          push: true
+          build-args: |
+            VERSION=${{ env.version }}
+          tags: |
+            ${{ env.image_name }}:${{ env.image_tag }}
+          outputs: type=image,oci-mediatypes=true,compression=zstd,compression-level=3,force-compression=true
+          cache-from: type=local,src=/tmp/.buildx-cache
+          cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
+
+      - name: Move cache
+        run: |
+          rm -rf /tmp/.buildx-cache
+          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
