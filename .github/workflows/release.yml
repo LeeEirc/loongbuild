@@ -37,7 +37,7 @@ jobs:
         run: |
           # sed -i "s@VERSION=.*@VERSION=${{ env.version }}-ce@g" README.md
           # sed -i "s@VERSION=.*@VERSION=${{ env.version }}-ce@g" README_EN.md
-          # sed -i "s@VERSION=.*@VERSION=${{ env.version }}-ce@g" config_example.conf
+          sed -i "s@VERSION=.*@VERSION=${{ env.version }}-ce@g" config_example.conf
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
           git add .
@@ -130,10 +130,12 @@ jobs:
         run: |
           case ${{ matrix.component }} in
             core)
+              sed -i 's@lxml==5.2.1@lxml==6.0.0@g' pyproject.toml
+              sed -i 's@xmlsec==1.3.14@xmlsec==1.3.16@g' pyproject.toml
+              sed -i "s@VERSION = .*@VERSION = '${{ env.version }}'@g" apps/jumpserver/const.py
               uv venv /tmp/py3
               . /tmp/py3/bin/activate
               uv pip install -r pyproject.toml
-              sed -i "s@VERSION = .*@VERSION = '${{ env.version }}'@g" apps/jumpserver/const.py
               wget -qO apps/common/utils/ip/geoip/GeoLite2-City.mmdb https://jms-pkg.oss-cn-beijing.aliyuncs.com/ip/GeoLite2-City.mmdb
               wget -qO apps/common/utils/ip/ipip/ipipfree.ipdb https://jms-pkg.oss-cn-beijing.aliyuncs.com/ip/ipipfree.ipdb
               echo > config.yml
