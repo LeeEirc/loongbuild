@@ -32,8 +32,9 @@ jobs:
         id: parse
         run: |
           # 将逗号分隔的字符串转换为 JSON 数组
-          components=$(echo "${{ env.components }}" | sed 's/[[:space:]]*,[[:space:]]*/","/g' | sed 's/^/"/' | sed 's/$/"/' | sed 's/^/[/' | sed 's/$/]/')
-          echo "$components" >> $GITHUB_OUTPUT
+          input="${{ env.components }}"
+          components=$(echo "$input" | tr -d ' ' | sed 's/,/","/g' | sed 's/^/["/' | sed 's/$/"]/')
+          echo "components=$components" >> $GITHUB_OUTPUT
           echo "Parsed components: $components"
   build:
     runs-on: ubuntu-latest
