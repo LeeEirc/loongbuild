@@ -101,7 +101,16 @@ jobs:
             
             echo "Saved: docker-images/$component-${{ env.image_tag }}-loong64.tar.gz"
           done
-          
+          docker pull --platform linux/loong64 ghcr.io/loong64/redis:7.2-trixie
+          # Save the Redis image
+          echo "Saving Redis image..."
+          docker save ghcr.io/loong64/redis:7.2-trixie | gzip > "docker-images/redis-7.2-trixie-loong64.tar.gz"
+
+          docker pull --platform linux/loong64 ghcr.io/loong64/postgres:16-trixie
+          # Save the Postgres image
+          echo "Saving Postgres image..."
+          docker save ghcr.io/loong64/postgres:16-trixie | gzip > "docker-images/postgres-16-trixie-loong64.tar.gz"
+
           # List saved images for verification
           echo "Saved docker images:"
           ls -la docker-images/
