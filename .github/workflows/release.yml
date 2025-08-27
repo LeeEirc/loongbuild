@@ -178,8 +178,8 @@ jobs:
               sed -i "s@version =.*;@version = '${{ env.version }}';@g" src/environments/environment.prod.ts
               yarn install
               yarn build
-              cp -R src/assets/i18n luna/
-              mv luna luna-${{ env.version }}
+              cp -R src/assets/i18n dist/luna/
+              mv dist/luna luna-${{ env.version }}
               tar -zcvf ../dist/luna-${{ env.version }}.tar.gz luna-${{ env.version }}
               ;;
             web)
