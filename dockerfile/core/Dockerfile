@@ -44,7 +44,9 @@ RUN --mount=type=cache,target=/root/.cache \
     && pip install uv \
     && uv venv /opt/py3 \
     && . /opt/py3/bin/activate \
-    && uv pip install -r pyproject.toml
+    && uv pip install -r pyproject.toml \
+    && uv pip install xmlsec==1.3.16 \
+    && uv pip install -U lxml
 
 FROM ghcr.io/loong64/python:3.11-slim-trixie
 ENV LANG=en_US.UTF-8 \
