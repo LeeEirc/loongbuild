@@ -173,7 +173,7 @@ jobs:
 
   docker:
     runs-on: ubuntu-latest
-    needs: build
+    needs: [build, prepare]
     strategy:
       matrix:
         component: ${{ fromJson(needs.prepare.outputs.components) }}
