@@ -1,0 +1,130 @@
+name: offline release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Build Tag'
+        required: true
+        default: ''
+      version:
+        description: 'Release Version'
+        required: true
+        default: ''
+      image_tag:
+        description: 'Image Tag'
+        required: true
+        default: ''
+
+env:
+  tag: ${{ github.event.inputs.tag }}
+  version: ${{ github.event.inputs.version }}
+  image_tag: ${{ github.event.inputs.image_tag }}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get Version
+        run: |
+          echo "Current Version: ${version}"
+
+      - name: Checkout Code
+        uses: actions/checkout@v5
+
+      - name: Create Tag
+        run: |
+          # sed -i "s@VERSION=.*@VERSION=${{ env.version }}-ce@g" README.md
+          # sed -i "s@VERSION=.*@VERSION=${{ env.version }}-ce@g" README_EN.md
+          # sed -i "s@VERSION=.*@VERSION=${{ env.version }}-ce@g" config_example.conf
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git add .
+          git commit -m "feat: Release ${{ env.version }}" || echo "No changes"
+          git tag ${{ env.version }} || echo "Tag already exists"
+          git push origin HEAD ${{ env.version }} || echo "Tag already pushed"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check Release
+        run: |
+          if [ "${{ github.event.inputs.latest }}" == "true" ]; then
+            gh release create ${{ env.version }} -t ${{ env.version }} -n "Release ${{ env.version }}" -R ${{ github.repository }} || echo "Release already exists"
+          else
+            gh release create ${{ env.version }} -t ${{ env.version }} -n "Release ${{ env.version }}" -R ${{ github.repository }} --latest=false || echo "Release already exists"
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  collect-images:
+    runs-on: ubuntu-latest
+    needs: check
+    steps:
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull and Save Docker Images for linux/loong64
+        run: |
+          # Create directory for saved images
+          mkdir -p docker-images
+          
+          # Define components
+          components=("core" "koko" "lion" "chen" "web")
+          
+          # Pull and save each component for linux/loong64 architecture
+          for component in "${components[@]}"; do
+            echo "Processing component: $component"
+            image_name="ghcr.io/leeeirc/jumpserver/$component:${{ env.image_tag }}"
+            
+            # Pull image for linux/loong64 architecture
+            echo "Pulling $image_name for linux/loong64..."
+            docker pull --platform linux/loong64 "$image_name"
+            
+            # Save the image to tar file
+            echo "Saving $component image..."
+            docker save "$image_name" | gzip > "docker-images/$component-${{ env.image_tag }}-loong64.tar.gz"
+            
+            # Show image info
+            docker inspect "$image_name" --format '{{.Architecture}}' || echo "Failed to inspect $image_name"
+            
+            echo "Saved: docker-images/$component-${{ env.image_tag }}-loong64.tar.gz"
+          done
+          
+          # List saved images for verification
+          echo "Saved docker images:"
+          ls -la docker-images/
+          
+          # Show total size
+          echo "Total size of saved images:"
+          du -sh docker-images/
+
+      - name: Create Combined Archive
+        run: |
+          echo "Creating combined archive..."
+          cd docker-images
+          tar -czf "../loong64-docker-images.tar.gz" *.tar.gz
+          cd ..
+          
+          echo "Combined archive created:"
+          ls -la loong64-docker-images.tar.gz
+          
+          # Show contents of the archive
+          echo "Contents of the combined archive:"
+          tar -tzf loong64-docker-images.tar.gz
+
+      - name: Upload Combined Docker Images to Release
+        run: |
+          echo "Uploading loong64-docker-images.tar.gz to release ${{ env.version }}"
+          gh release upload ${{ env.version }} loong64-docker-images.tar.gz --clobber
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
