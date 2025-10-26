@@ -68,6 +68,11 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Ensure zstd is installed
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y zstd
+
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v3
         with:
@@ -93,23 +98,23 @@ jobs:
             docker pull --platform linux/loong64 "$image_name"
             
             # Save the image to tar file
-            echo "Saving $component image..."
-            docker save "$image_name" | gzip > "docker-images/$component-${{ env.image_tag }}-loong64.tar.gz"
+            echo "Saving $component image with zstd compression..."
+            docker save "$image_name" | zstd -T0 -19 -o "docker-images/$component-${{ env.image_tag }}-loong64.tar.zst"
             
             # Show image info
             docker inspect "$image_name" --format '{{.Architecture}}' || echo "Failed to inspect $image_name"
             
-            echo "Saved: docker-images/$component-${{ env.image_tag }}-loong64.tar.gz"
+            echo "Saved: docker-images/$component-${{ env.image_tag }}-loong64.tar.zst"
           done
           docker pull --platform linux/loong64 ghcr.io/loong64/redis:7.2-trixie
           # Save the Redis image
-          echo "Saving Redis image..."
-          docker save ghcr.io/loong64/redis:7.2-trixie | gzip > "docker-images/redis-7.2-trixie-loong64.tar.gz"
+          echo "Saving Redis image with zstd compression..."
+          docker save ghcr.io/loong64/redis:7.2-trixie | zstd -T0 -19 -o "docker-images/redis-7.2-trixie-loong64.tar.zst"
 
           docker pull --platform linux/loong64 ghcr.io/loong64/postgres:16-trixie
           # Save the Postgres image
-          echo "Saving Postgres image..."
-          docker save ghcr.io/loong64/postgres:16-trixie | gzip > "docker-images/postgres-16-trixie-loong64.tar.gz"
+          echo "Saving Postgres image with zstd compression..."
+          docker save ghcr.io/loong64/postgres:16-trixie | zstd -T0 -19 -o "docker-images/postgres-16-trixie-loong64.tar.zst"
 
           # List saved images for verification
           echo "Saved docker images:"
@@ -123,19 +128,19 @@ jobs:
         run: |
           echo "Creating combined archive..."
           cd docker-images
-          tar -czf "../loong64-docker-images.tar.gz" *.tar.gz
+          tar --zstd -cf "../loong64-docker-images.tar.zst" *.tar.zst
           cd ..
           
           echo "Combined archive created:"
-          ls -la loong64-docker-images.tar.gz
+          ls -la loong64-docker-images.tar.zst
           
           # Show contents of the archive
           echo "Contents of the combined archive:"
-          tar -tzf loong64-docker-images.tar.gz
+          tar -t --zstd -f loong64-docker-images.tar.zst
 
       - name: Upload Combined Docker Images to Release
         run: |
-          echo "Uploading loong64-docker-images.tar.gz to release ${{ env.version }}"
-          gh release upload ${{ env.version }} loong64-docker-images.tar.gz --clobber
+          echo "Uploading loong64-docker-images.tar.zst to release ${{ env.version }}"
+          gh release upload ${{ env.version }} loong64-docker-images.tar.zst --clobber
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
